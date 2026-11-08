@@ -10,6 +10,16 @@ Calling on students in a classroom can be difficult to manage fairly. Teachers m
 
 The app was built with **Google Apps Script (GAS)**, a spreadsheet-based roster, and an optional Google Drive folder of student photos. The teacher can register class/subject combinations as sessions, choose a whole class or a subgroup (前班 / 後班), display the selected student's name and optional information, view the next student on deck, and track selections across a round.
 
+### Teacher–AI Development Conversation
+
+The teacher–AI conversation documenting the development of this application is archived on Zenodo. The transcript provides a record of the conversational design process, illustrating how a teacher used AI assistance to translate a classroom problem into a functioning Google Apps Script micro-app through iterative dialogue, testing, and refinement.
+
+**Reference**
+
+Emmett, D. (2026). *Caller-Onner Mabob: A teacher–AI app development transcript* (Version 1.0). Zenodo. https://doi.org/10.5281/zenodo.24047003
+
+**Access the archived transcript:** https://doi.org/10.5281/zenodo.24047003
+
 ## Main features
 
 - Registers or unregisters teacher-specific class/subject sessions (identified in the original code through the active user's email).
