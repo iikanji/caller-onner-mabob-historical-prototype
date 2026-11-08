@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <base target="_top">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <?!= include('styles.css'); ?>
+</head>
+<body>
+    <div id="splash-page" class="container">
+        <header>
+            <h1>Student Caller Micro-App</h1>
+        </header>
+        <main>
+            <div class="card">
+                <h2>Select Your Session</h2>
+                <div class="session-controls">
+                    <select id="session-selector"><option value="" disabled selected>Loading...</option></select>
+                    <button id="unregister-btn" class="icon-btn" title="Unregister">🗑️</button>
+                </div>
+                <div class="group-selector">
+                    <label><input type="radio" name="group" value="all" checked> All</label>
+                    <label><input type="radio" name="group" value="1"> 前班</label>
+                    <label><input type="radio" name="group" value="2"> 後班</label>
+                </div>
+            </div>
+            <div class="card">
+                <h2>Register New Session</h2>
+                <div id="register-section" class="register-container">
+                    <select id="new-class-selector"><option value="" disabled selected>Choose class</option></select>
+                    <input type="text" id="subject-input" placeholder="Enter subject...">
+                    <button id="register-btn" class="action-btn">Register</button>
+                </div>
+            </div>
+            <button id="start-app-btn" class="action-btn primary large">Pick Me!</button>
+        </main>
+    </div>
+
+    <div id="caller-page" class="container hidden">
+        <header class="caller-header">
+            <button id="home-btn" class="action-btn">🏠 Home</button>
+            <div class="caller-toggles">
+                <div class="toggle-control">
+                    <label class="switch"><input type="checkbox" id="photo-toggle" checked><span class="slider"></span></label>
+                    <span>Photo</span>
+                </div>
+                <div class="toggle-control">
+                    <label class="switch"><input type="checkbox" id="on-deck-toggle"><span class="slider"></span></label>
+                    <span>On Deck</span>
+                </div>
+            </div>
+            <h2 id="caller-title"></h2>
+        </header>
+        <main id="main-content">
+            <div id="student-card" class="card hidden">
+                <div class="student-details-container">
+                    <div id="photo-container">
+                        <img id="student-photo" src="" alt="Student Photo">
+                    </div>
+                    <div id="info-container">
+                        <p id="student-furigana" class="info-furigana"></p>
+                        <h2 id="student-name" class="info-name"></h2>
+                        <p id="student-id" class="info-id"></p>
+                        <p id="student-details" class="info-details"></p>
+                    </div>
+                </div>
+            </div>
+            <div id="all-called-message" class="card hidden">
+                <p>All students in this session have been called!</p>
+                <button id="new-round-btn" class="action-btn">Start New Round</button>
+            </div>
+            <div id="on-deck-card" class="card on-deck hidden">
+                <p><span>On Deck:</span> <span id="on-deck-name"></span></p>
+            </div>
+        </main>
+        <footer>
+            <div id="action-buttons" class="hidden">
+                 <button id="absent-btn" class="action-btn secondary">Absent / 欠席</button>
+                 <button id="skip-btn" class="action-btn secondary">Skip</button>
+                 <button id="next-btn" class="action-btn primary">Next Student</button>
+            </div>
+        </footer>
+    </div>
+
+    <script>
+        let studentQueue = [];
+        let currentStudent = null;
+        let selectedSessionId = "";
+        let selectedGroup = "all";
+
+        const splashPage = document.getElementById('splash-page');
+        const callerPage = document.getElementById('caller-page');
+        const sessionSelector = document.getElementById('session-selector');
+        const newClassSelector = document.getElementById('new-class-selector');
+        const subjectInput = document.getElementById('subject-input');
+        const registerBtn = document.getElementById('register-btn');
+        const unregisterBtn = document.getElementById('unregister-btn');
+        const startAppBtn = document.getElementById('start-app-btn');
+        const homeBtn = document.getElementById('home-btn');
+        const callerTitle = document.getElementById('caller-title');
+        const studentCard = document.getElementById('student-card');
+        const allCalledMessage = document.getElementById('all-called-message');
+        const actionButtons = document.getElementById('action-buttons');
+        const nextBtn = document.getElementById('next-btn');
+        const absentBtn = document.getElementById('absent-btn');
+        const skipBtn = document.getElementById('skip-btn');
+        const newRoundBtn = document.getElementById('new-round-btn');
+        const photoToggle = document.getElementById('photo-toggle');
+        const onDeckToggle = document.getElementById('on-deck-toggle');
+        const onDeckCard = document.getElementById('on-deck-card');
+
+        document.addEventListener('DOMContentLoaded', () => google.script.run.withSuccessHandler(setupInitialUI).getUserData());
+
+        function setupInitialUI(data) {
+            if (data.error) return showError(data.error);
+            populateDropdown(newClassSelector, data.all, "Choose class");
+            populateDropdown(sessionSelector, data.registered, data.registered.length > 0 ? "Select session..." : "No sessions");
+        }
+
+        function populateDropdown(selector, options, defaultText) {
+            selector.innerHTML = `<option value="" disabled selected>${defaultText}</option>`;
+            options.forEach(c => selector.add(new Option(c, c)));
+        }
+
+        startAppBtn.addEventListener('click', () => {
+            selectedSessionId = sessionSelector.value;
+            if (!selectedSessionId) return alert("Please select a session first!");
+
+            selectedGroup = document.querySelector('input[name="group"]:checked').value;
+            setLoadingState(true, startAppBtn, "Building Queue...");
+
+            google.script.run
+                .withSuccessHandler(initializeQueue)
+                .withFailureHandler(showError)
+                .getShuffledStudentQueue(selectedSessionId, selectedGroup);
+        });
+
+        function initializeQueue(shuffledStudents) {
+            studentQueue = shuffledStudents;
+            setLoadingState(false, startAppBtn, "Pick Me!");
+
+            if (studentQueue.length === 0) {
+                alert(`There are no available students for "${selectedSessionId}" in this group.`);
+                return;
+            }
+
+            callerTitle.textContent = selectedSessionId;
+            splashPage.classList.add('hidden');
+            callerPage.classList.remove('hidden');
+            processQueue();
+        }
+
+        function processQueue() {
+            if (studentQueue.length === 0) {
+                displayAllCalled();
+                return;
+            }
+
+            currentStudent = studentQueue.shift();
+            const onDeckStudent = studentQueue.length > 0 ? studentQueue[0] : null;
+
+            displayStudent(currentStudent, onDeckStudent);
+        }
+
+        // --- UPDATED with ANIMATION LOGIC ---
+        function displayStudent(student, onDeck) {
+            const className = selectedSessionId.substring(0, selectedSessionId.lastIndexOf('(')).trim();
+
+            // Start fade-out animation
+            studentCard.classList.add('updating');
+
+            google.script.run
+                .withSuccessHandler((photoData) => {
+                    // Wait for fade-out to be noticeable before updating content
+                    setTimeout(() => {
+                        student.photoData = photoData;
+
+                        document.getElementById('student-id').textContent = student.id;
+                        document.getElementById('student-furigana').textContent = student.furigana;
+                        document.getElementById('student-name').textContent = student.name;
+                        document.getElementById('student-details').textContent = student.details;
+
+                        const photoEl = document.getElementById('student-photo');
+                        photoEl.src = student.photoData || '';
+                        photoEl.style.display = student.photoData ? 'block' : 'none';
+
+                        if (onDeck) {
+                            document.getElementById('on-deck-name').textContent = onDeck.name;
+                        } else {
+                            document.getElementById('on-deck-name').textContent = "Last student!";
+                        }
+
+                        studentCard.classList.remove('hidden');
+                        actionButtons.classList.remove('hidden');
+                        allCalledMessage.classList.add('hidden');
+
+                        // Trigger fade-in animation
+                        studentCard.classList.remove('updating');
+                    }, 150); // 150ms delay
+                })
+                .getStudentPhotoAsBase64(className, student.number);
+        }
+
+        function displayAllCalled() {
+            studentCard.classList.add('hidden');
+            actionButtons.classList.add('hidden');
+            onDeckCard.classList.add('hidden');
+            allCalledMessage.classList.remove('hidden');
+            currentStudent = null;
+        }
+
+        function handleStudentAction(status) {
+            if (currentStudent) {
+                google.script.run.markStudentStatus(selectedSessionId, currentStudent.id, status);
+            }
+            processQueue();
+        }
+
+        nextBtn.addEventListener('click', () => handleStudentAction('Called'));
+        absentBtn.addEventListener('click', () => handleStudentAction('Called'));
+        skipBtn.addEventListener('click', () => handleStudentAction('Skipped'));
+
+        homeBtn.addEventListener('click', () => {
+            if (currentStudent) { /* Return student to pool by not marking them */ }
+            studentQueue = [];
+            currentStudent = null;
+            callerPage.classList.add('hidden');
+            splashPage.classList.remove('hidden');
+            google.script.run.withSuccessHandler(setupInitialUI).getUserData();
+        });
+
+        registerBtn.addEventListener('click', () => {
+            const className = newClassSelector.value;
+            const subject = subjectInput.value.trim();
+            if (className && subject) {
+                google.script.run
+                    .withSuccessHandler(handleRegistrationSuccess)
+                    .registerSession(className, subject);
+            }
+        });
+
+        unregisterBtn.addEventListener('click', () => {
+            const session = sessionSelector.value;
+            if (!session) return alert("Select a session to unregister.");
+            if (confirm(`Unregister "${session}"?`)) {
+                google.script.run
+                    .withSuccessHandler(handleRegistrationSuccess)
+                    .unregisterSession(session);
+            }
+        });
+
+        photoToggle.addEventListener('change', (e) => document.getElementById('photo-container').style.display = e.target.checked ? 'block' : 'none');
+        onDeckToggle.addEventListener('change', (e) => onDeckCard.classList.toggle('hidden', !e.target.checked));
+
+        function handleRegistrationSuccess(result) {
+            if (result.status === "Success") {
+                populateDropdown(sessionSelector, result.sessions, result.sessions.length > 0 ? "Select session..." : "No sessions");
+                subjectInput.value = '';
+            } else {
+                showError(result.error);
+            }
+        }
+
+        newRoundBtn.addEventListener('click', () => {
+          setLoadingState(true, newRoundBtn, "Resetting...");
+          google.script.run.withSuccessHandler(() => {
+              startAppBtn.click();
+              setLoadingState(false, newRoundBtn, "Start New Round");
+          }).startNewRound(selectedSessionId);
+        });
+
+        function setLoadingState(isLoading, button = nextBtn, text = 'Loading...') {
+            const originalText = button.dataset.originalText || (button.id === 'next-btn' ? 'Next Student' : button.textContent);
+            if(isLoading && !button.dataset.originalText) button.dataset.originalText = originalText;
+
+            button.disabled = isLoading;
+            button.textContent = isLoading ? text : originalText;
+
+            if(!isLoading) delete button.dataset.originalText;
+
+            if(button.id !== 'next-btn') {
+                absentBtn.disabled = isLoading;
+                skipBtn.disabled = isLoading;
+            }
+        }
+
+        function showError(error) {
+            setLoadingState(false, startAppBtn, "Pick Me!");
+            alert('An error occurred: ' + (error.message || error));
+        }
+    </script>
+</body>
+</html>
